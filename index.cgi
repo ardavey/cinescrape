@@ -23,23 +23,13 @@ print $q->header();
 # Super-simple title info and today's date
 print $q->start_html( -title => 'Cineworld Edinburgh - Today/Tomorrow' );
 print '<span style="width: 95%; font-family: sans-serif;">';
-print $q->p( $today );
-
+print $q->p( "$today - Loading data..." );
 
 # We read the data from a local file if it exists
-my $rawxml;
-if ( open LOCALF, 'listings.xml' ) {
-  print "\n\n<!-- using local data -->\n\n";
-  $rawxml = join( '', <LOCALF> );
-  close LOCALF;
-}
-else {
-  print "\n\n<!-- downloading data -->\n\n";
-  $rawxml = get $src_url;
-}
+my $raw_xml = get_raw_xml();
 
 my $xml = new XML::Simple( keyAttr => 'id' );
-my $data = $xml->XMLin( $rawxml, ForceArray => [ 'show' ] );
+my $data = $xml->XMLin( $raw_xml, ForceArray => [ 'show' ] );
 $data = $data->{cinema}->{21};  # We're only interested in Edinburgh for now
 
 my $root_url = $data->{root};
@@ -69,15 +59,25 @@ foreach my $film ( @films ) {
 }
 
 # We've done all the hard work now - let's print it!
-print $q->hr();
-print $q->h3( 'Today:' );
-print_table( $showing_today );
-
-print $q->hr();
-print $q->h3( 'Tomorrow:' );
-print_table( $showing_tomorrow );
+print_table( 'Today:', $showing_today );
+print_table( 'Tomorrow:', $showing_tomorrow );
+hit_counter();
 
 #-------------------------------------------------------------------------------
+
+sub get_raw_xml {
+  my $raw_xml = '';
+  if ( open LOCALF, 'listings.xml' ) {
+    print "\n\n<!-- using local data -->\n\n";
+    $raw_xml = join( '', <LOCALF> );
+    close LOCALF;
+  }
+  else {
+    print "\n\n<!-- downloading data -->\n\n";
+    $raw_xml = get $src_url;
+  }
+  return $raw_xml;
+}
 
 sub make_title {
   my ( $film, $show ) = @_;
@@ -95,9 +95,11 @@ sub make_title {
   return $title;
 }
 
-
 sub print_table {
-  my ( $showings ) = @_;
+  my ( $label, $showings ) = @_;
+
+  print $q->hr();
+  print $q->h3( $label );
 
   if ( scalar keys %$showings == 0 ) {
     print $q->p( 'Nothing to see' );
@@ -122,29 +124,31 @@ sub print_table {
   }
 }
 
-print $q->hr();
-
-# very simple hit counter - I want to see if anyone else is using this!
-my $hits;
-
-# 'hits' is a txt file where the first row represents the number of hits
-if ( -e "./cine_hits" ) {
-  open HITREAD, "< cine_hits";
-  my @in = <HITREAD>;
-  close HITREAD;
-  chomp @in;
-  $hits = $in[0];
+sub hit_counter {
+  print $q->hr();
+  
+  # very simple hit counter - I want to see if anyone else is using this!
+  my $hits;
+  
+  # 'hits' is a txt file where the first row represents the number of hits
+  if ( -e "./cine_hits" ) {
+    open HITREAD, "< cine_hits";
+    my @in = <HITREAD>;
+    close HITREAD;
+    chomp @in;
+    $hits = $in[0];
+  }
+  else {
+    $hits = 0;
+  }
+  
+  print $q->small( "gr00ved 2012<br>" . ++$hits );
+  
+  print '</span>';
+  print $q->end_html();
+  
+  # attempt to write the new hitcounter value to file
+  open HITWRITE, "> cine_hits";
+  print HITWRITE $hits;
+  close HITWRITE;
 }
-else {
-  $hits = 0;
-}
-
-print $q->small( "gr00ved 2012<br>" . ++$hits );
-
-print '</span>';
-print $q->end_html();
-
-# attempt to write the new hitcounter value to file
-open HITWRITE, "> cine_hits";
-print HITWRITE $hits;
-close HITWRITE;
