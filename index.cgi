@@ -22,7 +22,7 @@ print $q->header();
 
 # Super-simple title info and today's date
 print $q->start_html( -title => 'Cineworld Edinburgh' );
-print '<span style="width: 95%; font-family: sans-serif;">';
+print '<span style="width: 95%; font-family: sans-serif; text-decoration: none">';
 print $q->h3( "Today and Tomorrow at Cineworld Edinburgh" );
 print $q->p( $today );
 
@@ -55,19 +55,23 @@ foreach my $film ( @films ) {
         next;
       }
       elsif ( $show_date eq $today && $show->{time} ge $now ) {
-        push( @{ $showing_today->{ make_title( $film, $show ) } }, "<a href=$root_url$show->{url}>$show_time</a>" );
+        #push( @{ $showing_today->{ make_title( $film, $show ) } }, "<a href=$root_url$show->{url}>$show_time</a>" );
+        push( @{ $showing_today->{ make_title( $film, $show ) } }, $show_time );
       }
       else {
-        push( @{ $showing_tomorrow->{ make_title( $film, $show ) } }, "<a href=$root_url$show->{url}>$show_time</a>" );
+        #push( @{ $showing_tomorrow->{ make_title( $film, $show ) } }, "<a href=$root_url$show->{url}>$show_time</a>" );
+        push( @{ $showing_tomorrow->{ make_title( $film, $show ) } }, $show_time );
       }
     }
   }
 }
 
 # We've done all the hard work now - let's print it!
+print $q->hr();
 print $q->h3( 'Today:' );
 print_table( $showing_today );
 
+print $q->hr();
 print $q->h3( 'Tomorrow:' );
 print_table( $showing_tomorrow );
 
@@ -115,7 +119,8 @@ sub print_table {
     print $q->end_table();
   }
 }
-;
+
+print $q->hr();
 
 # very simple hit counter - I want to see if anyone else is using this!
 my $hits;
