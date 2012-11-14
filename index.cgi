@@ -3,97 +3,119 @@ use strict;
 
 use CGI;
 use LWP::Simple;
+use XML::Simple;
 use POSIX qw( strftime );
+use Date::Calc qw( Delta_Days );
+
 use Data::Dumper;
 
-# This is the page we're scraping
-my $url = 'http://www.cineworld.co.uk/mobile/cinemas/21/nowshowing';
+# Cineworld's "syndication" XML doc - a massive record of all showings for all cinemas - several MB (*groan*)
+# TODO: Some kind of caching of this data.  CW seem to update it regularly (hourly?) so perhaps
+# a cron job to fetch it and we can just use the local copy.
+my $src_url = 'http://www.cineworld.co.uk/syndication/listings.xml';
 
-# Page content uses 'ddd DD mmm' format next to screening times
-my $today = strftime( "%a %d %b", gmtime() );
-my $now   = strftime( "%H:%M", gmtime() );  # hardcode this for testing
+my $now = strftime( '%Y-%m-%dT00:00:00', gmtime() );
+my ( $today ) = $now =~ m/(\d{4}-\d{2}-\d{2})/;
 
 my $q = CGI->new();
 print $q->header();
+
+# Super-simple title info and today's date
 print $q->start_html( -title => 'Cineworld Edinburgh' );
-print $q->h3( "Today at Cineworld Edinburgh" );
-print $q->p( "Showing after $now on $today" );
+print '<span style="width: 95%; font-family: sans-serif;">';
+print $q->h3( "Today and Tomorrow at Cineworld Edinburgh" );
+print $q->p( $today );
 
-# grab the page and strip unnecessary whitespace
-my $content = get $url;
+# We read the data from a local file if it exists
+my $rawxml;
+if ( open LOCALF, 'listings.xml' ) {
+  $rawxml = join( '', <LOCALF> );
+  close LOCALF;
+}
+else {
+  $rawxml = get $src_url;
+}
 
-$content =~ s/\n//g;
-$content =~ s/\s+/ /g;
+my $xml = new XML::Simple( keyAttr => 'id' );
+my $data = $xml->XMLin( $rawxml, ForceArray => [ 'show' ] );
+$data = $data->{cinema}->{21};  # We're only interested in Edinburgh for now
 
-# each movie is in a separate <div> - let's get our array on
-my @films = $content =~ m!(<div class="film performances top".*?</div>)!g;
-#my @films = $content =~ m!(<h2>(.*?)</h2>)!g;
+my $root_url = $data->{root};
+my @films = @{ $data->{listing}->{film} };
 
-#print "<hr>".join("<br>",@films)."<hr>";
+my $showing_today = {};
+my $showing_tomorrow = {};
 
-# No need to go any further if there's nothing on!
-if ( @films ) {
-  my @showing_now = ();
-  
-  # carry out some ugly string matching to pick out the title and times.
-  # skip any films which don't contain today's date in the block - they're not showing today!
-  foreach my $film ( @films ) {
-    next unless ( $film =~ m/$today/i );
-    
-    # parse out the times for this film
-    my @times = $film =~ m/showing.*?>(\d\d:\d\d)/g;
-    # and ditch those which are before now
-    @times = grep { $_ gt $now } @times;
-    # and get rid of duplicates
-    @times = sort keys %{{ map { $_ => 1 } @times }};
-    
-    if ( @times ) {
-      # there are showings remaining, so let's get the name and synopsis
-      my ( $title ) = $film =~ m!\?film=\d+">(.*?)</a!;
-      my ( $syn )   = $film =~ m!p class="clear">(.*?)</p!;  
-      
-      # if the title starts with '3D', 'The', 'A' or 'IMAX' then shift that to the end so we can sort it more usefully
-      $title =~ s/^(IMAX)(?: -)? (.*$)/$2 ($1)/i;
-      $title =~ s/(^[23])d - (.*$)/$2 ($1D)/i;
-      $title =~ s/^(The|A) (.*$)/$2, $1/i;
-      
-      # Dump this row into the array
-      my $row = "<td><b>$title</b><br>"
-              . join( ', ', @times ) . "<br><br>"
-              . "<small>$syn</small>";
-      
-      push( @showing_now, $row );
+foreach my $film ( @films ) {    
+  foreach my $show ( @{$film->{shows}->{show} } ) {
+    if ( $show->{time} ge $now ) {
+      my ( $show_date, $show_time ) = $show->{time} =~ m/(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):\d{2}/;
+      # We're not interested if the show is further away than tomorrow
+      if ( Delta_Days( $today =~ /(\d{4})-(\d{2})-(\d{2})/, $show_date =~ /(\d{4})-(\d{2})-(\d{2})/ ) > 1 ) {
+        next;
+      }
+      elsif ( $show_date eq $today && $show->{time} ge $now ) {
+        push( @{ $showing_today->{ make_title( $film, $show ) } }, "<a href=$root_url$show->{url}>$show_time</a>" );
+      }
+      else {
+        push( @{ $showing_tomorrow->{ make_title( $film, $show ) } }, "<a href=$root_url$show->{url}>$show_time</a>" );
+      }
     }
   }
+}
+
+# We've done all the hard work now - let's print it!
+print $q->h3( 'Today:' );
+print_table( $showing_today );
+
+print $q->h3( 'Tomorrow:' );
+print_table( $showing_tomorrow );
+
+#-------------------------------------------------------------------------------
+
+sub make_title {
+  my ( $film, $show ) = @_;
   
-  if ( @showing_now ) {
-    # we have films showing - let's sort them alphabetically and make a table
-    @showing_now = sort @showing_now;
-    
+  my $title = $film->{title};
+  $title =~ s/^(The|A) (.*$)/$2, $1/i;
+  
+  if ( defined $show->{videoType} ) {
+    my $nice_type = $show->{videoType};
+    $nice_type =~ s/imax/ (IMAX)/i;
+    $nice_type =~ s/3d/ (3D)/i;
+    $title .= $nice_type;
+  }
+
+  return $title;
+}
+
+
+sub print_table {
+  my ( $showings ) = @_;
+
+  if ( scalar keys %$showings == 0 ) {
+    print $q->p( 'Nothing to see' );
+  }
+  else {
     print $q->start_table( {
-                            -border      => 0,
-                            -cellpadding => 2,
-                            -cellspacing => 5,
-                           } );
+                          -border      => 0,
+                          -cellpadding => 5,
+                          -cellspacing => 5,
+                          -width       => "100%",
+                        } );
     
     my $count = 1;
-    foreach my $row ( @showing_now ) {
+    foreach my $title ( sort keys %$showings ) {
       my $bgc = ( $count++ % 2 ) ? "lightgray" : "white";
-      print $q->Tr( { -bgcolor => $bgc }, $row );
+      print $q->Tr( { -bgcolor => $bgc },
+                   $q->td( "<b>$title</b><br>".join( ' ', sort( @{ $showings->{$title} } ) ) ),
+                  );
     }
     
     print $q->end_table();
   }
-  else {
-    print $q->h3( "Nothing showing today - check back tomorrow" );
-  }
 }
-else {
-  print $q->h3( "No movies found!" );
-}
-
-# Link to the cineworld site
-print "<p><small><a href=\"$url\">Source page</a></small></p>";
+;
 
 # very simple hit counter - I want to see if anyone else is using this!
 my $hits;
@@ -110,12 +132,12 @@ else {
   $hits = 0;
 }
 
-print $q->small( "Andrew Davey 2011<br>" . ++$hits );
+print $q->small( "gr00ved 2012<br>" . ++$hits );
 
+print '</span>';
 print $q->end_html();
 
 # attempt to write the new hitcounter value to file
 open HITWRITE, "> cine_hits";
 print HITWRITE $hits;
 close HITWRITE;
-
