@@ -21,18 +21,20 @@ my $q = CGI->new();
 print $q->header();
 
 # Super-simple title info and today's date
-print $q->start_html( -title => 'Cineworld Edinburgh' );
-print '<span style="width: 95%; font-family: sans-serif; text-decoration: none">';
-print $q->h3( "Today and Tomorrow at Cineworld Edinburgh" );
+print $q->start_html( -title => 'Cineworld Edinburgh - Today/Tomorrow' );
+print '<span style="width: 95%; font-family: sans-serif;">';
 print $q->p( $today );
+
 
 # We read the data from a local file if it exists
 my $rawxml;
 if ( open LOCALF, 'listings.xml' ) {
+  print "\n\n<!-- downloading data -->\n\n";
   $rawxml = join( '', <LOCALF> );
   close LOCALF;
 }
 else {
+  print "\n\n<!-- using local data -->\n\n";
   $rawxml = get $src_url;
 }
 
