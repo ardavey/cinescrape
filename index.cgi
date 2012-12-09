@@ -23,7 +23,7 @@ print $q->header();
 # Super-simple title info and today's date
 print $q->start_html( -title => 'Cineworld Edinburgh - Today/Tomorrow' );
 print '<span style="width: 95%; font-family: sans-serif;">';
-print $q->p( "$today - Loading data..." );
+print $q->p( "$today" );
 
 # We read the data from a local file if it exists
 my $raw_xml = get_raw_xml();
