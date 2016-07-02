@@ -83,12 +83,12 @@ sub make_title {
   my ( $film, $show ) = @_;
   
   my $title = $film->{title};
+  $title =~ s/^\(.*?\) //;
   $title =~ s/^(The|A) (.*$)/$2, $1/i;
   
   if ( defined $show->{videoType} ) {
-    my $nice_type = $show->{videoType};
-    $nice_type =~ s/imax/ (IMAX)/i;
-    $nice_type =~ s/3d/ (3D)/i;
+    my $nice_type = uc( $show->{videoType} );
+    $nice_type =~ s/^(.*)$/ ($1)/;
     $title .= $nice_type;
   }
 
